@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Smart Patient Priority Dashboard</title>
+<style>
+  * {margin:0; padding:0; box-sizing:border-box; font-family:"Poppins",sans-serif;}
+  body {background:linear-gradient(to right,#e0f2ff,#f3f6ff); padding:20px;}
+  h1 {text-align:center; color:#2b2b5e; margin-bottom:10px;}
+  .container {display:flex; justify-content:space-between; gap:20px; flex-wrap:wrap;}
+  .card {background:white; border-radius:15px; box-shadow:0 4px 15px rgba(0,0,0,0.1); padding:15px;}
+  .add-section {text-align:center; background:white; width:fit-content; margin:10px auto; padding:10px 15px; border-radius:10px; box-shadow:0 4px 15px rgba(0,0,0,0.1);}
+  .add-section input,.add-section select {padding:5px; margin:5px;}
+  .add-section button {background:#007bff; color:white; border:none; padding:6px 12px; border-radius:6px; cursor:pointer;}
+  table {width:100%; border-collapse:collapse; border-radius:10px; overflow:hidden; text-align:center;}
+  th,td {padding:8px; border-bottom:1px solid #eee;}
+  th {background:#f8f9fa;}
+  tr:nth-child(even){background-color:#f9f9f9;}
+  .Emergency{background-color:#ffb3b3;}
+  .Critical{background-color:#ffe5b4;}
+  .Urgent{background-color:#fff9b1;}
+  .Normal{background-color:#b8f7c5;}
+  .Readded{background-color:#cce5ff !important;} /* 🔵 Blue for doctor-busy re-added patients */
+  #serveBtn{background-color:#6a5acd;color:white;padding:10px 18px;border:none;border-radius:8px;margin-top:15px;cursor:pointer;}
+  .chart{width:300px;height:300px;margin:auto;}
+  #popup{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);justify-content:center;align-items:center;}
+  #popupContent{background:white;padding:25px;border-radius:10px;width:350px;text-align:center;}
+  #servedBusyContainer {display:flex; gap:20px; margin-top:25px; flex-wrap:wrap;}
+  #servedPatients, #busyPatients {flex:1; min-width:350px;}
+  #servedPatients h3 {color:#28a745;}
+  #busyPatients h3 {color:#ff9800;}
+  #readdBtn {background:#007bff; color:white; border:none; padding:8px 14px; border-radius:6px; cursor:pointer; float:right;}
+</style>
+</head>
+<body>
+
+<h1>🩺 Smart Patient Priority Dashboard</h1>
+
+<div class="add-section">
+  <input type="text" id="patientId" placeholder="Patient ID">
+  <select id="severity">
+    <option value="Emergency">Emergency</option>
+    <option value="Critical">Critical</option>
+    <option value="Urgent">Urgent</option>
+    <option value="Normal">Normal</option>
+  </select>
+  <input type="number" id="waitingTime" placeholder="Waiting Time">
+  <input type="number" id="age" placeholder="Age">
+  <select id="specialNeeds">
+    <option value="No">No</option>
+    <option value="Yes">Yes</option>
+  </select>
+  <input type="number" id="doctorId" placeholder="Doctor ID">
+  <button onclick="addPatient()">Add Patient</button>
+</div>
+
+<div class="container">
+  <div class="card" style="flex: 1;">
+    <h3>Generated Synthetic Patient Records</h3>
+    <table id="patientTable">
+      <thead>
+        <tr>
+          <th>Patient ID</th><th>Severity</th><th>Waiting Time</th>
+          <th>Age</th><th>Special Needs</th><th>Appointment Time</th>
+          <th>Doctor ID</th><th>Priority</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+    <button id="serveBtn" onclick="serveNextPatient()">Serve Next Patient</button>
+  </div>
+
+  <div class="card" style="flex: 1;">
+    <h3>Serving Order (Sorted by Priority)</h3>
+    <pre id="serveList"></pre>
+  </div>
+</div>
+
+<div class="chart card">
+  <canvas id="severityChart"></canvas>
+</div>
+
+<div id="servedBusyContainer">
+  <div class="card" id="servedPatients">
+    <h3>✅ Served Patients</h3>
+    <table>
+      <thead><tr><th>Patient ID</th><th>Severity</th><th>Doctor ID</th><th>Status</th></tr></thead>
+      <tbody id="servedBody"></tbody>
+    </table>
+  </div>
+
+  <div class="card" id="busyPatients">
+    <h3>⏳ Doctor Busy Patients 
+      <button id="readdBtn" onclick="readdBusyPatients()">Re-Add to Waiting</button>
+    </h3>
+    <table>
+      <thead><tr><th>Patient ID</th><th>Severity</th><th>Doctor ID</th><th>Status</th></tr></thead>
+      <tbody id="busyBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<div id="popup">
+  <div id="popupContent">
+    <h3>Patient Details</h3>
+    <p id="popupText"></p>
+    <p id="doctorStatus" style="font-weight:bold;"></p>
+    <button onclick="confirmServe()">Confirm</button>
+    <button onclick="closePopup()">Cancel</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+let patients = [
+  {id:"P001",severity:"Normal",waiting:109,age:35,special:"No",appointment:"2025-09-24 20:00",doctor:18},
+  {id:"P002",severity:"Emergency",waiting:84,age:33,special:"No",appointment:"2025-09-24 07:15",doctor:17},
+  {id:"P003",severity:"Critical",waiting:55,age:84,special:"Yes",appointment:"2025-09-23 13:00",doctor:7},
+  {id:"P004",severity:"Urgent",waiting:60,age:24,special:"Yes",appointment:"2025-09-14 19:45",doctor:10},
+  {id:"P005",severity:"Normal",waiting:89,age:72,special:"No",appointment:"2025-09-19 09:45",doctor:2},
+  {id:"P006",severity:"Emergency",waiting:65,age:87,special:"Yes",appointment:"2025-09-05 13:00",doctor:14},
+  {id:"P007",severity:"Critical",waiting:70,age:38,special:"No",appointment:"2025-09-23 17:30",doctor:5},
+  {id:"P008",severity:"Urgent",waiting:84,age:62,special:"No",appointment:"2025-09-30 07:15",doctor:13},
+  {id:"P009",severity:"Emergency",waiting:84,age:33,special:"No",appointment:"2025-09-24 07:15",doctor:17},
+  {id:"P010",severity:"Normal",waiting:116,age:39,special:"No",appointment:"2025-09-06 15:30",doctor:7}
+];
+
+let served = [];
+let doctorBusy = [];
+let currentServe = null;
+let doctorAvailable = false;
+
+function calculatePriority(p){
+  const weights={Emergency:4,Critical:3,Urgent:2,Normal:1};
+  return (weights[p.severity]*100)+(p.waiting/2)+(p.age/4);
+}
+
+function renderTables(){
+  const tbody=document.querySelector("#patientTable tbody");
+  tbody.innerHTML="";
+  patients.sort((a,b)=>calculatePriority(b)-calculatePriority(a));
+  for(let p of patients){
+    let cls = p.wasReadded ? "Readded" : p.severity;
+    tbody.innerHTML+=`<tr class="${cls}">
+      <td>${p.id}</td><td>${p.severity}</td><td>${p.waiting}</td><td>${p.age}</td>
+      <td>${p.special}</td><td>${p.appointment}</td><td>${p.doctor}</td>
+      <td>${calculatePriority(p).toFixed(1)}</td></tr>`;
+  }
+  updateServeList();
+  updateChart();
+}
+
+function addPatient(){
+  let p={
+    id:patientId.value,severity:severity.value,waiting:Number(waitingTime.value),
+    age:Number(age.value),special:specialNeeds.value,
+    appointment:"2025-10-09 10:00",doctor:Number(doctorId.value)
+  };
+  patients.push(p);
+  renderTables();
+}
+
+function updateServeList(){
+  const serveList=document.getElementById("serveList");
+  serveList.textContent="";
+  patients.forEach(p=>serveList.textContent+=`${p.id} ${calculatePriority(p).toFixed(1)} ${p.age} ${p.severity}\n`);
+}
+
+function updateChart(){
+  let count={Emergency:0,Critical:0,Urgent:0,Normal:0};
+  patients.forEach(p=>count[p.severity]++);
+  if(window.chartObj) window.chartObj.destroy();
+  const ctx=document.getElementById("severityChart");
+  window.chartObj=new Chart(ctx,{
+    type:'pie',
+    data:{
+      labels:["Emergency","Critical","Urgent","Normal"],
+      datasets:[{data:[count.Emergency,count.Critical,count.Urgent,count.Normal],
+      backgroundColor:['#ff6b6b','#ffb84d','#f9f871','#51e27a']}]
+    }
+  });
+}
+
+function serveNextPatient(){
+  if(patients.length===0) return alert("No patients waiting!");
+  currentServe=patients.shift();
+  document.getElementById("popup").style.display="flex";
+  document.getElementById("popupText").innerHTML=`
+    <b>ID:</b> ${currentServe.id}<br>
+    <b>Severity:</b> ${currentServe.severity}<br>
+    <b>Waiting Time:</b> ${currentServe.waiting}<br>
+    <b>Doctor ID:</b> ${currentServe.doctor}`;
+  doctorAvailable=Math.random()>0.5;
+  document.getElementById("doctorStatus").innerText=
+    doctorAvailable ? "✅ Doctor is Available" : "❌ Doctor Busy";
+}
+
+function confirmServe(){
+  if(doctorAvailable){
+    served.push({...currentServe,status:"Served"});
+    renderServed();
+  }else{
+    doctorBusy.push({...currentServe,status:"Doctor Busy"});
+    renderBusy();
+  }
+  currentServe=null;
+  document.getElementById("popup").style.display="none";
+  renderTables();
+}
+
+function readdBusyPatients(){
+  if(doctorBusy.length===0) return alert("No busy patients to re-add!");
+  doctorBusy.forEach(p=>{
+    p.wasReadded=true;
+    patients.push(p);
+  });
+  doctorBusy=[];
+  renderBusy();
+  renderTables();
+  alert("Doctor busy patients re-added to waiting list (blue rows).");
+}
+
+function closePopup(){document.getElementById("popup").style.display="none";}
+function renderServed(){
+  const tbody=document.getElementById("servedBody");
+  tbody.innerHTML="";
+  served.forEach(p=>tbody.innerHTML+=`<tr><td>${p.id}</td><td>${p.severity}</td><td>${p.doctor}</td><td>${p.status}</td></tr>`);
+}
+function renderBusy(){
+  const tbody=document.getElementById("busyBody");
+  tbody.innerHTML="";
+  doctorBusy.forEach(p=>tbody.innerHTML+=`<tr><td>${p.id}</td><td>${p.severity}</td><td>${p.doctor}</td><td>${p.status}</td></tr>`);
+}
+renderTables();
+</script>
+</body>
+</html>
